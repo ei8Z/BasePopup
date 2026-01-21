@@ -1,10 +1,13 @@
 package razerdp.basepopup;
 
+import static android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY;
+
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Message;
 import android.util.LayoutDirection;
 import android.view.Gravity;
@@ -16,10 +19,11 @@ import android.view.ViewPropertyAnimator;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 import razerdp.util.KeyboardUtils;
 import razerdp.util.PopupUiUtils;
-import razerdp.util.log.PopupLog;
 
 import static razerdp.basepopup.BasePopupWindow.GravityMode;
 
@@ -60,6 +64,8 @@ final class PopupDecorViewProxy extends ViewGroup implements KeyboardUtils.OnKey
     Rect keyboardBoundsCache;
     boolean keyboardVisibleCache = false;
     boolean touchDownInDecorView = false;
+
+    private OnBackInvokedCallback mBackCallback;
 
     private PopupDecorViewProxy(Context context) {
         super(context);
@@ -627,6 +633,7 @@ final class PopupDecorViewProxy extends ViewGroup implements KeyboardUtils.OnKey
         if (mHelper != null) {
             mHelper.onAttachToWindow(this);
         }
+        registerBackCallBack();
     }
 
     @Override
@@ -669,6 +676,37 @@ final class PopupDecorViewProxy extends ViewGroup implements KeyboardUtils.OnKey
             return touchableRect.contains(x, y);
         }
         return false;
+    }
+
+    /**
+     * target sdk 为36时，KEYCODE_BACK事件不会发送给View层级
+     * 需要使用OnBackInvokedDispatcher来获取返回事件
+     */
+    private void registerBackCallBack(){
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (mBackCallback == null){
+                mBackCallback = () -> {
+                    if (mHelper != null){
+                        mHelper.onBackPressed();
+                    }
+                };
+            }
+            OnBackInvokedDispatcher onBackInvokedDispatcher = findOnBackInvokedDispatcher();
+            if (onBackInvokedDispatcher != null){
+                onBackInvokedDispatcher.registerOnBackInvokedCallback(PRIORITY_OVERLAY,mBackCallback);
+            }
+        }
+    }
+
+    private void unregisterBackCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (mBackCallback != null) {
+                OnBackInvokedDispatcher dispatcher = findOnBackInvokedDispatcher();
+                if (dispatcher != null) {
+                    dispatcher.unregisterOnBackInvokedCallback(mBackCallback);
+                }
+            }
+        }
     }
 
     @Override
@@ -890,6 +928,7 @@ final class PopupDecorViewProxy extends ViewGroup implements KeyboardUtils.OnKey
 
     @Override
     public void clear(boolean destroy) {
+        unregisterBackCallback();
         if (mHelper != null) {
             mHelper.showFlag = 0;
             mHelper.mKeyboardStateChangeListener = null;
